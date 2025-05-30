@@ -120,6 +120,52 @@
             margin-bottom: 15px;
         }
         
+        .save-section {
+            background: #e6fffa;
+            border: 2px solid #38b2ac;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .save-btn {
+            background: #38b2ac;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 1em;
+            transition: background 0.3s ease;
+        }
+        
+        .save-btn:hover {
+            background: #319795;
+        }
+        
+        .reset-btn {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 1em;
+            transition: background 0.3s ease;
+        }
+        
+        .reset-btn:hover {
+            background: #c53030;
+        }
+        
+        .save-status {
+            color: #38b2ac;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+        
         .upgrade-btn {
             background: #48bb78;
             color: white;
@@ -184,6 +230,14 @@
         <div class="cookie" id="cookie"></div>
         
         <div class="upgrades">
+            <div class="save-section">
+                <h3>💾 データ管理</h3>
+                <button class="save-btn" id="saveGame">手動セーブ</button>
+                <button class="save-btn" id="loadGame">ロード</button>
+                <button class="reset-btn" id="resetGame">リセット</button>
+                <div class="save-status" id="saveStatus">自動保存: 有効</div>
+            </div>
+            
             <div class="upgrade-section">
                 <h3>クリック強化</h3>
                 <button class="upgrade-btn" id="clickUpgrade">
@@ -228,7 +282,9 @@
                 
                 this.initializeElements();
                 this.setupEventListeners();
+                this.loadGame(); // ゲーム開始時に自動ロード
                 this.startAutoProduction();
+                this.startAutoSave();
                 this.updateDisplay();
             }
             
@@ -253,6 +309,9 @@
                 document.getElementById('autoClicker').addEventListener('click', () => this.buyAutoClicker());
                 document.getElementById('bakery').addEventListener('click', () => this.buyBakery());
                 document.getElementById('factory').addEventListener('click', () => this.buyFactory());
+                document.getElementById('saveGame').addEventListener('click', () => this.saveGame());
+                document.getElementById('loadGame').addEventListener('click', () => this.loadGame());
+                document.getElementById('resetGame').addEventListener('click', () => this.resetGame());
             }
             
             clickCookie(event) {
@@ -346,6 +405,101 @@
                 document.getElementById('autoClicker').disabled = this.cookies < this.autoCost;
                 document.getElementById('bakery').disabled = this.cookies < this.bakeryCost;
                 document.getElementById('factory').disabled = this.cookies < this.factoryCost;
+            }
+            
+            saveGame() {
+                const gameData = {
+                    cookies: this.cookies,
+                    totalCookies: this.totalCookies,
+                    clickPower: this.clickPower,
+                    autoClickers: this.autoClickers,
+                    bakeries: this.bakeries,
+                    factories: this.factories,
+                    clickCost: this.clickCost,
+                    autoCost: this.autoCost,
+                    bakeryCost: this.bakeryCost,
+                    factoryCost: this.factoryCost,
+                    saveTime: new Date().toISOString()
+                };
+                
+                try {
+                    localStorage.setItem('cookieClickerSave', JSON.stringify(gameData));
+                    this.showSaveStatus('セーブしました！');
+                } catch (error) {
+                    this.showSaveStatus('セーブに失敗しました', true);
+                    console.error('Save failed:', error);
+                }
+            }
+            
+            loadGame() {
+                try {
+                    const savedData = localStorage.getItem('cookieClickerSave');
+                    if (savedData) {
+                        const gameData = JSON.parse(savedData);
+                        
+                        this.cookies = gameData.cookies || 0;
+                        this.totalCookies = gameData.totalCookies || 0;
+                        this.clickPower = gameData.clickPower || 1;
+                        this.autoClickers = gameData.autoClickers || 0;
+                        this.bakeries = gameData.bakeries || 0;
+                        this.factories = gameData.factories || 0;
+                        this.clickCost = gameData.clickCost || 10;
+                        this.autoCost = gameData.autoCost || 50;
+                        this.bakeryCost = gameData.bakeryCost || 200;
+                        this.factoryCost = gameData.factoryCost || 1000;
+                        
+                        this.updateDisplay();
+                        
+                        if (gameData.saveTime) {
+                            const saveDate = new Date(gameData.saveTime).toLocaleString('ja-JP');
+                            this.showSaveStatus(`ロードしました (${saveDate})`);
+                        } else {
+                            this.showSaveStatus('ロードしました！');
+                        }
+                    } else {
+                        this.showSaveStatus('セーブデータが見つかりません');
+                    }
+                } catch (error) {
+                    this.showSaveStatus('ロードに失敗しました', true);
+                    console.error('Load failed:', error);
+                }
+            }
+            
+            resetGame() {
+                if (confirm('本当にゲームをリセットしますか？すべてのデータが失われます。')) {
+                    localStorage.removeItem('cookieClickerSave');
+                    
+                    this.cookies = 0;
+                    this.totalCookies = 0;
+                    this.clickPower = 1;
+                    this.autoClickers = 0;
+                    this.bakeries = 0;
+                    this.factories = 0;
+                    this.clickCost = 10;
+                    this.autoCost = 50;
+                    this.bakeryCost = 200;
+                    this.factoryCost = 1000;
+                    
+                    this.updateDisplay();
+                    this.showSaveStatus('ゲームをリセットしました');
+                }
+            }
+            
+            startAutoSave() {
+                setInterval(() => {
+                    this.saveGame();
+                }, 30000); // 30秒ごとに自動保存
+            }
+            
+            showSaveStatus(message, isError = false) {
+                const statusElement = document.getElementById('saveStatus');
+                statusElement.textContent = message;
+                statusElement.style.color = isError ? '#e53e3e' : '#38b2ac';
+                
+                setTimeout(() => {
+                    statusElement.textContent = '自動保存: 有効';
+                    statusElement.style.color = '#38b2ac';
+                }, 3000);
             }
         }
         
