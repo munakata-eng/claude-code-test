@@ -28,6 +28,7 @@
             text-align: center;
             max-width: 600px;
             width: 90%;
+            position: relative; /* Added for golden cookie positioning */
         }
         
         h1 {
@@ -206,10 +207,31 @@
                 transform: translateY(-50px);
             }
         }
+
+        .golden-cookie {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background-color: gold;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none; /* Initially hidden */
+            z-index: 1000;
+            text-align: center;
+            line-height: 50px; /* Vertically center text/emoji */
+            font-size: 1.5em; /* Adjust emoji/text size */
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.8), 0 0 25px rgba(255, 215, 0, 0.5); /* Gold glow */
+            transition: transform 0.2s ease-in-out, opacity 0.3s ease;
+        }
+
+        .golden-cookie:hover {
+            transform: scale(1.1);
+        }
     </style>
 </head>
 <body>
     <div class="game-container">
+        <div id="goldenCookie" class="golden-cookie">🌟</div> <!-- Golden Cookie Element -->
         <h1>🍪 クッキークリッカー</h1>
         
         <div class="stats">
@@ -243,7 +265,12 @@
                 <button class="upgrade-btn" id="clickUpgrade">
                     クリック力UP (コスト: <span id="clickCost">10</span>)
                 </button>
-                <div>現在のクリック力: <span id="clickPower">1</span></div>
+                <div>基本クリック力: <span id="clickPower">1</span></div> {/* Changed label for clarity */}
+
+                <button class="upgrade-btn" id="cursorBoosterUpgrade" style="margin-top: 10px;">
+                    カーソルブースター (コスト: <span id="cursorBoosterCost">100</span>)
+                </button>
+                <div>現在のブースト: +<span id="cursorBoosterEffect">0</span>/クリック (CPSベース) | レベル: <span id="cursorBoosterLevel">0</span></div>
             </div>
             
             <div class="upgrade-section">
@@ -279,12 +306,23 @@
                 this.autoCost = 50;
                 this.bakeryCost = 200;
                 this.factoryCost = 1000;
+
+                this.goldenCookieTimer = null;
+                this.goldenCookieTimeout = null;
+                this.goldenCookieActive = false;
+
+                // Cursor Booster properties
+                this.cursorBoosterLevel = 0;
+                this.cursorBoosterCost = 100;
+                this.cursorBoosterCostIncreaseFactor = 1.8;
+                this.cursorBoosterEffectPerLevel = 0.001;
                 
                 this.initializeElements();
                 this.setupEventListeners();
                 this.loadGame(); // ゲーム開始時に自動ロード
                 this.startAutoProduction();
                 this.startAutoSave();
+                this.trySpawnGoldenCookie(); // Start the golden cookie spawn cycle
                 this.updateDisplay();
             }
             
@@ -301,11 +339,19 @@
                 this.autoCountElement = document.getElementById('autoCount');
                 this.bakeryCountElement = document.getElementById('bakeryCount');
                 this.factoryCountElement = document.getElementById('factoryCount');
+                this.goldenCookieElement = document.getElementById('goldenCookie');
+                // Cursor Booster elements
+                this.cursorBoosterCostElement = document.getElementById('cursorBoosterCost');
+                this.cursorBoosterEffectElement = document.getElementById('cursorBoosterEffect');
+                this.cursorBoosterLevelElement = document.getElementById('cursorBoosterLevel');
+                this.cursorBoosterUpgradeButton = document.getElementById('cursorBoosterUpgrade');
             }
             
             setupEventListeners() {
                 this.cookieElement.addEventListener('click', (e) => this.clickCookie(e));
+                this.goldenCookieElement.addEventListener('click', (e) => this.clickGoldenCookie(e));
                 document.getElementById('clickUpgrade').addEventListener('click', () => this.buyClickUpgrade());
+                this.cursorBoosterUpgradeButton.addEventListener('click', () => this.buyCursorBooster());
                 document.getElementById('autoClicker').addEventListener('click', () => this.buyAutoClicker());
                 document.getElementById('bakery').addEventListener('click', () => this.buyBakery());
                 document.getElementById('factory').addEventListener('click', () => this.buyFactory());
@@ -315,9 +361,13 @@
             }
             
             clickCookie(event) {
-                this.cookies += this.clickPower;
-                this.totalCookies += this.clickPower;
-                this.showClickAnimation(event, this.clickPower);
+                const baseClickValue = this.clickPower;
+                const boosterBonus = this.cursorBoosterLevel * this.cursorBoosterEffectPerLevel * this.getCookiesPerSecond();
+                const totalClickValue = baseClickValue + boosterBonus;
+
+                this.cookies += totalClickValue;
+                this.totalCookies += totalClickValue;
+                this.showClickAnimation(event, totalClickValue);
                 this.updateDisplay();
             }
             
@@ -400,8 +450,15 @@
                 this.autoCountElement.textContent = this.autoClickers.toLocaleString();
                 this.bakeryCountElement.textContent = this.bakeries.toLocaleString();
                 this.factoryCountElement.textContent = this.factories.toLocaleString();
+
+                // Update Cursor Booster display
+                this.cursorBoosterCostElement.textContent = this.cursorBoosterCost.toLocaleString();
+                const currentBoostEffect = this.cursorBoosterLevel * this.cursorBoosterEffectPerLevel * this.getCookiesPerSecond();
+                this.cursorBoosterEffectElement.textContent = currentBoostEffect.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1});
+                this.cursorBoosterLevelElement.textContent = this.cursorBoosterLevel.toLocaleString();
                 
                 document.getElementById('clickUpgrade').disabled = this.cookies < this.clickCost;
+                this.cursorBoosterUpgradeButton.disabled = this.cookies < this.cursorBoosterCost;
                 document.getElementById('autoClicker').disabled = this.cookies < this.autoCost;
                 document.getElementById('bakery').disabled = this.cookies < this.bakeryCost;
                 document.getElementById('factory').disabled = this.cookies < this.factoryCost;
@@ -419,6 +476,9 @@
                     autoCost: this.autoCost,
                     bakeryCost: this.bakeryCost,
                     factoryCost: this.factoryCost,
+                    // Cursor Booster save data
+                    cursorBoosterLevel: this.cursorBoosterLevel,
+                    cursorBoosterCost: this.cursorBoosterCost,
                     saveTime: new Date().toISOString()
                 };
                 
@@ -447,7 +507,15 @@
                         this.autoCost = gameData.autoCost || 50;
                         this.bakeryCost = gameData.bakeryCost || 200;
                         this.factoryCost = gameData.factoryCost || 1000;
-                        
+
+                        // Load Cursor Booster data
+                        this.cursorBoosterLevel = gameData.cursorBoosterLevel || 0;
+                        this.cursorBoosterCost = gameData.cursorBoosterCost || 100;
+                        // Ensure effectPerLevel and costIncreaseFactor are at default if not saved, though they usually aren't changed post-init
+                        this.cursorBoosterEffectPerLevel = gameData.cursorBoosterEffectPerLevel || 0.001;
+                        this.cursorBoosterCostIncreaseFactor = gameData.cursorBoosterCostIncreaseFactor || 1.8;
+
+
                         this.updateDisplay();
                         
                         if (gameData.saveTime) {
@@ -479,6 +547,10 @@
                     this.autoCost = 50;
                     this.bakeryCost = 200;
                     this.factoryCost = 1000;
+
+                    // Reset Cursor Booster
+                    this.cursorBoosterLevel = 0;
+                    this.cursorBoosterCost = 100;
                     
                     this.updateDisplay();
                     this.showSaveStatus('ゲームをリセットしました');
@@ -500,6 +572,127 @@
                     statusElement.textContent = '自動保存: 有効';
                     statusElement.style.color = '#38b2ac';
                 }, 3000);
+            }
+
+            // --- Cursor Booster Method ---
+            buyCursorBooster() {
+                if (this.cookies >= this.cursorBoosterCost) {
+                    this.cookies -= this.cursorBoosterCost;
+                    this.cursorBoosterLevel++;
+                    this.cursorBoosterCost = Math.floor(this.cursorBoosterCost * this.cursorBoosterCostIncreaseFactor);
+                    this.updateDisplay();
+                }
+            }
+
+            // --- Golden Cookie Methods ---
+            trySpawnGoldenCookie() {
+                if (this.goldenCookieActive) { // If a GC is already active, don't schedule a new one yet.
+                    return;
+                }
+
+                // Clear any existing timer to avoid multiple spawn loops if called unexpectedly
+                if (this.goldenCookieTimer) {
+                    clearTimeout(this.goldenCookieTimer);
+                }
+
+                const randomInterval = (Math.random() * 60000) + 30000; // Randomly between 30 to 90 seconds
+
+                this.goldenCookieTimer = setTimeout(() => {
+                    if (this.goldenCookieActive) { // Double check before spawning
+                        this.trySpawnGoldenCookie(); // Reschedule if one became active meanwhile
+                        return;
+                    }
+
+                    // Chance to spawn: e.g. 30% chance every time the interval hits. Adjust as needed.
+                    // (Previously 0.5, 0.3 might be better for more frequent checks)
+                    if (Math.random() < 0.3) {
+                        this.goldenCookieActive = true;
+
+                        const gameContainer = this.goldenCookieElement.parentElement; // Should be .game-container
+                        const containerWidth = gameContainer.offsetWidth;
+                        const containerHeight = gameContainer.offsetHeight;
+                        const cookieSize = 50; // As defined in CSS for .golden-cookie
+
+                        let x = Math.random() * (containerWidth - cookieSize);
+                        let y = Math.random() * (containerHeight - cookieSize);
+
+                        x = Math.max(5, Math.min(x, containerWidth - cookieSize - 5));
+                        y = Math.max(5, Math.min(y, containerHeight - cookieSize - 5));
+
+                        this.goldenCookieElement.style.left = `${x}px`;
+                        this.goldenCookieElement.style.top = `${y}px`;
+                        this.goldenCookieElement.style.display = 'block';
+                        this.goldenCookieElement.style.opacity = '1';
+
+                        const despawnTime = (Math.random() * 5000) + 10000; // 10 to 15 seconds
+                        this.goldenCookieTimeout = setTimeout(() => this.despawnGoldenCookie(false), despawnTime);
+                    } else {
+                        // If not spawning this time, schedule the next attempt
+                        this.trySpawnGoldenCookie();
+                    }
+                }, randomInterval);
+            }
+
+            clickGoldenCookie(event) {
+                event.stopPropagation();
+                if (!this.goldenCookieActive) return;
+
+                const cps = this.getCookiesPerSecond();
+                const bonus = (cps > 0 ? cps * 60 : this.clickPower * 20) + 13;
+
+                this.cookies += bonus;
+                this.totalCookies += bonus;
+
+                this.updateDisplay();
+                this.showGoldenCookieFeedback(bonus, event); // Pass the event for positioning
+                this.despawnGoldenCookie(true);
+            }
+
+            despawnGoldenCookie(wasClicked) {
+                clearTimeout(this.goldenCookieTimeout);
+                this.goldenCookieElement.style.opacity = '0';
+
+                setTimeout(() => {
+                    this.goldenCookieElement.style.display = 'none';
+                    this.goldenCookieActive = false;
+                    if (!wasClicked) { // Only reschedule if it wasn't clicked (click already reschedules)
+                        this.trySpawnGoldenCookie();
+                    } else if (wasClicked) { // If it was clicked, ensure next spawn is scheduled
+                         this.trySpawnGoldenCookie();
+                    }
+                }, 300);
+            }
+
+            showGoldenCookieFeedback(bonus, clickEvent) {
+                const feedbackElement = document.createElement('div');
+                feedbackElement.className = 'click-animation';
+                // Changed text to Japanese and used a different star emoji for variety
+                feedbackElement.textContent = `+${Math.floor(bonus).toLocaleString()}クッキー！ ✨`;
+                feedbackElement.style.color = 'gold';
+                feedbackElement.style.fontSize = '2em';
+                feedbackElement.style.textShadow = '1px 1px 2px black';
+                feedbackElement.style.position = 'absolute'; // Ensure it's positioned relative to game-container
+
+                const gameContainerRect = this.goldenCookieElement.parentElement.getBoundingClientRect();
+
+                let x = clickEvent.clientX - gameContainerRect.left;
+                let y = clickEvent.clientY - gameContainerRect.top;
+
+                // Temporarily append to calculate offsetWidth, then position
+                this.goldenCookieElement.parentElement.appendChild(feedbackElement);
+                feedbackElement.style.left = (x - feedbackElement.offsetWidth / 2) + 'px';
+                feedbackElement.style.top = (y - feedbackElement.offsetHeight - 5) + 'px'; // Position above click point
+
+                // No need to append again, already appended
+
+                setTimeout(() => {
+                    if (feedbackElement.parentNode) {
+                        feedbackElement.parentNode.removeChild(feedbackElement);
+                    }
+                }, 2500);
+
+                // Confirmed this message is already in Japanese and seems clear.
+                this.showSaveStatus(`ゴールデンクッキーボーナス！ +${Math.floor(bonus).toLocaleString()} クッキー！`);
             }
         }
         
